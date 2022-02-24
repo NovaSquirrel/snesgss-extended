@@ -94,7 +94,7 @@ waitBBAA:
   adc #$22
   sta APU0
 
-    ; Wait for acknowledgement
+  ; Wait for acknowledgement
 @wait:
   cmp APU0
   bne @wait
@@ -117,24 +117,23 @@ waitBBAA:
   rtl
 .endproc
 
-.import spc_entry, GSS_MusicUploadAddress, SongDirectory
+.import spc_entry, fast_spc_entry, GSS_MusicUploadAddress, SongDirectory
 .import __SPCIMAGE_RUN__, __SPCIMAGE_LOAD__, __SPCIMAGE_SIZE__
 
 .proc spc_boot_apu
-  jsr spc_wait_boot
+	setxy16
+	jsr spc_wait_boot
 
-  ; Upload sample to SPC at $200
-  ldy #__SPCIMAGE_RUN__
-  jsr spc_begin_upload
-:
-  tyx
-  lda f:__SPCIMAGE_LOAD__,x
-  jsr spc_upload_byte
-  cpy #__SPCIMAGE_SIZE__
-  bne :-
-  ldy #spc_entry
-  jsr spc_execute
-  rtl
+	ldy #__SPCIMAGE_RUN__
+	jsr spc_begin_upload
+:	tyx
+	lda f:__SPCIMAGE_LOAD__,x
+	jsr spc_upload_byte
+	cpy #__SPCIMAGE_SIZE__
+	bne :-
+	ldy #spc_entry
+	jsr spc_execute
+	rtl
 .endproc
 
 ; ---------------------------------------------------------
@@ -200,26 +199,62 @@ Length  = 0
 :   lda APU0
 	bne :-
 
+	lda #1   ; Fast load
+	sta APU1
 	lda #GSS_Commands::LOAD
 	sta APU0
-	; Wait for the SPC to signal it's ready with APU0=$AA, APU1=$BB
-	seta16
-	lda #$BBAA
-waitBBAA:
-	cmp APU0
-	bne waitBBAA
-	seta8
 
-	; Upload song to SPC
-	ldy #GSS_MusicUploadAddress
-	jsr spc_begin_upload
-
-:	lda [Pointer],y
-	jsr spc_upload_byte
-	cpy Length
+	; Wait for SPC to be ready
+:	lda APU0
+	cmp #69
 	bne :-
 
-	ldy #spc_entry
-	jsr spc_execute
+	; Disable interrupts
+	stz PPUNMI
+	php
+	sei
+
+    ldy #0
+    jsr TransferLoop
+
+	; Reenable interrupts
+	plp
+	lda #VBLANK_NMI|AUTOREAD
+	sta PPUNMI
+
+	lda #$80
+	sta APU0
+:   lda APU0
+    bne :-
 	rtl
+.endproc
+
+.proc TransferLoop
+	Pointer = 2
+	Length = 0
+Upload:
+	lda [Pointer],y
+	sta APU1
+	iny
+	lda [Pointer],y
+	sta APU2
+	iny
+	lda #1
+	sta APU0
+:	lda APU0
+	bpl :-
+
+	lda [Pointer],y
+	sta APU1
+	iny
+	lda [Pointer],y
+	sta APU2
+	iny
+	cpy Length
+	bcs Exit
+	:	lda APU0
+		bmi :-
+		bra Upload
+	Exit:
+	rts
 .endproc

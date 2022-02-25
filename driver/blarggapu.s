@@ -13,7 +13,7 @@
 ; Be sure to call spc_wait_boot after that.
 
 .include "snes.inc"
-.include "global.inc"
+.include "gss_commands.inc"
 .smart
 .i16
 

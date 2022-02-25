@@ -194,7 +194,7 @@ mainLoopInit:
 
 mainLoop:
 	lda <CPU0				;read command code, when it is zero (<SCMD_NONE), no new command
-	cmp <CPU0
+	cmp <CPU0				;apparently if you read at the same time the other side writes that can cause a problem, so reread
 	bne mainLoop
 	tay
 	beq commandDone
@@ -227,6 +227,12 @@ commandDone:
 	jsr updateMusicPlayer
 	bra mainLoop
 
+cmdSubCommand:
+	tya
+	asl
+	tax
+	jmp [!subCmdList+X]
+
 cmdInitialize:
 	jsr setReady
 	jsr initDSPAndVars
@@ -235,6 +241,7 @@ cmdInitialize:
 cmdStereo:
 	lda <CPU2
 	sta <D_STEREO
+SetReadyAndDone:
 	jsr setReady
 	bra commandDone
 
@@ -349,22 +356,21 @@ cmdSfxPlay:
 
 
 .proc cmdLoad
-	lda <CPU1 ; 0=normal load, 1=faster load
-	bne :+
-		jsr setReady
-	;.if BRR_STREAMING
-	;	jsr streamStop			;stop BRR streaming to prevent glitches after loading
-	;.endif
-		ldx #0
-		stx <D_KON
-		dex
-		stx <D_KOF
-		jsr bufKeyOffApply
-		ldx #$ef
-		txs
-		jmp $ffc9
-	:
+	jsr setReady
+;.if BRR_STREAMING
+;	jsr streamStop			;stop BRR streaming to prevent glitches after loading
+;.endif
+	ldx #0
+	stx <D_KON
+	dex
+	stx <D_KOF
+	jsr bufKeyOffApply
+	ldx #$ef
+	txs
+	jmp $ffc9
+.endproc
 
+.proc cmdFastLoad
 	lda #>GSS_MusicUploadAddress
 	sta store1+2
 	sta store2+2
@@ -609,6 +615,108 @@ streamSetBufPtr:
 	sta S_BUFFER_OFF
 	rts
 .endif
+
+; Echo commands taken from https://github.com/nesdoug/SNES_13
+.proc cmdEchoVolChans
+	ldx #DSP_EON
+	stx <ADDR
+	lda CPU3
+	sta <DATA
+
+	lda <CPU2
+	ldx #DSP_EVOLL
+	stx <ADDR
+	sta <DATA
+	ldx #DSP_EVOLL
+	stx <ADDR
+	sta <DATA
+
+	ldx #DSP_FLG ; Turn echo data writing on/off
+	stx <ADDR
+	tax
+	beq echo_off
+	clr1 DATA.5
+	jmp SetReadyAndDone
+echo_off:
+	set1 DATA.5
+	jmp SetReadyAndDone
+.endproc
+
+.proc cmdEchoAddrDelay
+	lda #DSP_ESA ; Echo address high byte
+	sta <ADDR
+	lda <CPU2
+	sta <DATA
+	sta <D_PTR_H
+	lda #DSP_EDL ; Echo delay (and buffer size) in 2KB chunks. or 0 is 4 bytes
+	sta <ADDR
+	lda <CPU3
+	and #$0f ; Sanitize
+	sta <DATA
+	asl a ;2
+	asl a ;4
+	asl a ;8
+	tax ;high byte count
+	bne forward
+		inx
+forward:
+	lda #0
+	sta <D_PTR_L
+	tay ;low byte count
+;clear the echo buffer
+loop:
+	sta (<D_PTR_L),y
+	iny
+	bne loop
+	inc <D_PTR_H
+	dex
+	bne loop
+;wait a little
+;both x and y are 0
+loop2:
+	nop
+	dex
+	bne loop2
+	dey
+	bne loop2
+	jmp SetReadyAndDone
+.endproc
+
+.proc cmdFeedbackFir
+	lda #DSP_EFB ; Feedback volume
+	sta <ADDR
+	lda <CPU3
+	sta <DATA
+	lda <CPU2 ; FIR setting
+	asl a
+	asl a
+	asl a
+	tay
+
+	ldx #7
+loop:
+	lda fir_addr, x	
+	sta <ADDR
+	lda fir_table,y
+	sta <DATA
+	iny
+	dex
+	bpl loop
+	jmp SetReadyAndDone
+
+fir_addr:
+	.byt $7f, $6f, $5f, $4f, $3f, $2f, $1f, $0f
+
+fir_table:
+	;simple echo
+	.byt $7f, $00, $00, $00, $00, $00, $00, $00
+	;multi echo
+	.byt $48, $20, $12, $0c, $00, $00, $00, $00
+	;low pass echo
+	.byt $0c, $21, $2b, $2b, $13, $fe, $f3, $f9
+	;high pass echo
+	.byt $01, $02, $04, $08, $10, $20, $40, $80
+.endproc
 
 ;start music, using the channels starting from the specified one
 ;in: X=the starting channel, musicDataPtr=music data location
@@ -1561,22 +1669,29 @@ sendDSPSequence:
 	rts
 
 cmdList:
-	.word 0					;0 no command, means the APU is ready for a new command
-	.word cmdInitialize		;1 initialize DSP
-	.word cmdLoad			;2 load new music data
-	.word cmdStereo			;3 change stereo sound mode, mono by default
-	.word cmdGlobalVolume	;4 set global volume
-	.word cmdChannelVolume	;5 set channel volume
-	.word cmdMusicPlay		;6 start music
-	.word cmdMusicStop		;7 stop music
-	.word cmdMusicPause		;8 pause music
-	.word cmdSfxPlay		;9 play sound effect
-	.word cmdStopAllSounds	;10 stop all sounds
+	.word 0                 ;0 no command, means the APU is ready for a new command
+	.word cmdSubCommand     ;1 run subcommand
+	.word cmdGlobalVolume   ;2 set global volume
+	.word cmdChannelVolume  ;3 set channel volume
+	.word cmdSfxPlay        ;4 play sound effect
 .if BRR_STREAMING
-	.word cmdStreamStart	;11 start sound streaming
-	.word cmdStreamStop		;12 stop sound streaming
-	.word cmdStreamSend		;13 send a block of data if needed
+	.word cmdStreamStart	;5 start sound streaming
+	.word cmdStreamStop		;6 stop sound streaming
+	.word cmdStreamSend		;7 send a block of data if needed
 .endif
+
+subCmdList:
+	.word cmdInitialize     ;0 initialize DSP
+	.word cmdStereo         ;1 change stereo sound mode, mono by default
+	.word cmdMusicPlay      ;2 start music
+	.word cmdMusicStop      ;3 stop music
+	.word cmdMusicPause     ;4 pause music
+	.word cmdStopAllSounds  ;5 stop all sounds
+	.word cmdFastLoad       ;6 load new music data (custom loader)
+	.word cmdLoad           ;7 load new music data (jump to IPL)
+	.word cmdEchoVolChans	;8 set echo bufer volume
+	.word cmdEchoAddrDelay	;9 set echo buffer address and delay size
+	.word cmdFeedbackFir	;10 set feedback volume and FIR filter
 
 notePeriodTable:
 	.word $0042,$0046,$004a,$004f,$0054,$0059,$005e,$0064,$006a,$0070,$0077,$007e

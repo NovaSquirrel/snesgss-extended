@@ -126,7 +126,7 @@ spc_wait_boot_without_clear = spc_wait_boot::without_clear
   rtl
 .endproc
 
-.import spc_entry, fast_spc_entry, GSS_MusicUploadAddress, SongDirectory
+.import spc_entry, GSS_MusicUploadAddress, SongDirectory
 .import __SPCIMAGE_RUN__, __SPCIMAGE_LOAD__, __SPCIMAGE_SIZE__
 
 .proc spc_boot_apu

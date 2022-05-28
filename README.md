@@ -9,7 +9,7 @@ New features include
 * Take multiple SNESGSS module files as input and combine them
 * Acknowledge SPC driver commands in a safer way
 
-There is an attempt at a faster loader than the one bult into the SPC boot ROM, but it has problems that need to be resolved. The music compression could also use some improvements - it seems to be particularly slow in Python, and doesn't try to compress as aggressively as it could have in order to try taking less time.
+The faster SPC700 loader from [libSFX](https://github.com/Optiroc/libSFX/) is included. The music compression could also use some improvements - it seems to be particularly slow in Python, and doesn't try to compress as aggressively as it could have in order to try taking less time.
 
 # SPC700 Driver
 The driver has been converted to use a ca65 macro pack, allowing it to integrate with a ca65 program more easily, and display debugging information in Mesen-S. It's interfaced with similarly to the original driver, but the command IDs have been changed to make room for more commands.

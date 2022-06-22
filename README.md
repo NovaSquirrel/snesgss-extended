@@ -102,7 +102,8 @@ Stops all music channels and marks all channels as free for sound effects.
 Stops all channels, including any sound effects.
 
 ## FAST_LOAD
-Starts the faster loader - which needs to be fixed, so just use LOAD for now.
+* APU2 = Number of pages (256 byte units) to send over
+Starts the faster loader, with the destination hardcoded to the place music should be loaded. `GSS_LoadSong` can use this.
 
 ## LOAD
 Jumps to the built-in SPC bootloader at `$ffc9`.
